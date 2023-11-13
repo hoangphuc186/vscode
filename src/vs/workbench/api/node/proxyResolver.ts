@@ -16,7 +16,7 @@ import { ExtHostExtensionService } from 'vs/workbench/api/node/extHostExtensionS
 import { URI } from 'vs/base/common/uri';
 import { ILogService, LogLevel as LogServiceLevel } from 'vs/platform/log/common/log';
 import { IExtensionDescription } from 'vs/platform/extensions/common/extensions';
-import { LogLevel, createHttpPatch, createProxyResolver, createTlsPatch, ProxySupportSetting, ProxyAgentParams, createNetPatch } from '@vscode/proxy-agent';
+import { LogLevel, createHttpPatch, createProxyResolver, createTlsPatch, ProxySupportSetting, ProxyAgentParams, createNetPatch, loadSystemCertificates } from '@vscode/proxy-agent';
 
 const systemCertificatesV2Default = false;
 
@@ -30,29 +30,30 @@ export function connectProxyResolver(
 ) {
 	const useHostProxy = initData.environment.useHostProxy;
 	const doUseHostProxy = typeof useHostProxy === 'boolean' ? useHostProxy : !initData.remote.isRemote;
+	const log = (level: LogLevel, message: string, ...args: any[]): void => {
+		switch (level) {
+			case LogLevel.Trace: extHostLogService.trace(message, ...args); break;
+			case LogLevel.Debug: extHostLogService.debug(message, ...args); break;
+			case LogLevel.Info: extHostLogService.info(message, ...args); break;
+			case LogLevel.Warning: extHostLogService.warn(message, ...args); break;
+			case LogLevel.Error: extHostLogService.error(message, ...args); break;
+			case LogLevel.Critical: extHostLogService.error(message, ...args); break;
+			case LogLevel.Off: break;
+			default: never(level, message, args); break;
+		}
+		function never(level: never, message: string, ...args: any[]) {
+			extHostLogService.error('Unknown log level', level);
+			extHostLogService.error(message, ...args);
+		}
+	};
 	const params: ProxyAgentParams = {
 		resolveProxy: url => extHostWorkspace.resolveProxy(url),
 		lookupProxyAuthorization: lookupProxyAuthorization.bind(undefined, extHostLogService, mainThreadTelemetry, configProvider, {}, initData.remote.isRemote),
 		getProxyURL: () => configProvider.getConfiguration('http').get('proxy'),
 		getProxySupport: () => configProvider.getConfiguration('http').get<ProxySupportSetting>('proxySupport') || 'off',
-		getSystemCertificatesV1: () => certSettingV1(configProvider),
-		getSystemCertificatesV2: () => certSettingV2(configProvider),
-		log: (level, message, ...args) => {
-			switch (level) {
-				case LogLevel.Trace: extHostLogService.trace(message, ...args); break;
-				case LogLevel.Debug: extHostLogService.debug(message, ...args); break;
-				case LogLevel.Info: extHostLogService.info(message, ...args); break;
-				case LogLevel.Warning: extHostLogService.warn(message, ...args); break;
-				case LogLevel.Error: extHostLogService.error(message, ...args); break;
-				case LogLevel.Critical: extHostLogService.error(message, ...args); break;
-				case LogLevel.Off: break;
-				default: never(level, message, args); break;
-			}
-			function never(level: never, message: string, ...args: any[]) {
-				extHostLogService.error('Unknown log level', level);
-				extHostLogService.error(message, ...args);
-			}
-		},
+		addCertificatesV1: () => certSettingV1(configProvider),
+		addCertificatesV2: () => certSettingV2(configProvider),
+		log,
 		getLogLevel: () => {
 			const level = extHostLogService.getLevel();
 			switch (level) {
@@ -71,7 +72,10 @@ export function connectProxyResolver(
 		},
 		proxyResolveTelemetry: () => { },
 		useHostProxy: doUseHostProxy,
-		addCertificates: [],
+		loadAdditionalCertificates: async () => [
+			...initData.remote.isRemote ? await loadSystemCertificates({ log }) : [],
+			...doUseHostProxy ? await extHostWorkspace.loadCertificates() : [], // Loading from main process to share cache.
+		],
 		env: process.env,
 	};
 	const resolveProxy = createProxyResolver(params);

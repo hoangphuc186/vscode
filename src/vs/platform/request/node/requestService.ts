@@ -20,6 +20,7 @@ import { ILogService, ILoggerService } from 'vs/platform/log/common/log';
 import { AbstractRequestService, IRequestService } from 'vs/platform/request/common/request';
 import { Agent, getProxyAgent } from 'vs/platform/request/node/proxy';
 import { createGunzip } from 'zlib';
+import { loadSystemCertificates, LogLevel } from '@vscode/proxy-agent';
 
 interface IHTTPConfiguration {
 	proxy?: string;
@@ -108,6 +109,26 @@ export class RequestService extends AbstractRequestService implements IRequestSe
 
 	async resolveProxy(url: string): Promise<string | undefined> {
 		return undefined; // currently not implemented in node
+	}
+
+	async loadCertificates(): Promise<string[]> {
+		const log = (level: LogLevel, message: string, ...args: any[]): void => {
+			const never = (level: never, message: string, ...args: any[]) => {
+				this.logService.error('Unknown log level', level);
+				this.logService.error(message, ...args);
+			};
+			switch (level) {
+				case LogLevel.Trace: this.logService.trace(message, ...args); break;
+				case LogLevel.Debug: this.logService.debug(message, ...args); break;
+				case LogLevel.Info: this.logService.info(message, ...args); break;
+				case LogLevel.Warning: this.logService.warn(message, ...args); break;
+				case LogLevel.Error: this.logService.error(message, ...args); break;
+				case LogLevel.Critical: this.logService.error(message, ...args); break;
+				case LogLevel.Off: break;
+				default: never(level, message, args); break;
+			}
+		};
+		return loadSystemCertificates({ log });
 	}
 }
 

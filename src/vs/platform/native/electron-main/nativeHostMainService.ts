@@ -43,6 +43,7 @@ import { WindowProfiler } from 'vs/platform/profiling/electron-main/windowProfil
 import { IV8Profile } from 'vs/platform/profiling/common/profiling';
 import { IAuxiliaryWindowsMainService, isAuxiliaryWindow } from 'vs/platform/auxiliaryWindow/electron-main/auxiliaryWindows';
 import { IAuxiliaryWindow } from 'vs/platform/auxiliaryWindow/electron-main/auxiliaryWindow';
+import { loadSystemCertificates, LogLevel } from '@vscode/proxy-agent';
 
 export interface INativeHostMainService extends AddFirstParameterToFunctions<ICommonNativeHostService, Promise<unknown> /* only methods, not events */, number | undefined /* window ID */> { }
 
@@ -754,6 +755,26 @@ export class NativeHostMainService extends Disposable implements INativeHostMain
 		const session = window?.win?.webContents?.session;
 
 		return session?.resolveProxy(url);
+	}
+
+	async loadCertificates(_windowId: number | undefined): Promise<string[]> {
+		const log = (level: LogLevel, message: string, ...args: any[]): void => {
+			const never = (level: never, message: string, ...args: any[]) => {
+				this.logService.error('Unknown log level', level);
+				this.logService.error(message, ...args);
+			};
+			switch (level) {
+				case LogLevel.Trace: this.logService.trace(message, ...args); break;
+				case LogLevel.Debug: this.logService.debug(message, ...args); break;
+				case LogLevel.Info: this.logService.info(message, ...args); break;
+				case LogLevel.Warning: this.logService.warn(message, ...args); break;
+				case LogLevel.Error: this.logService.error(message, ...args); break;
+				case LogLevel.Critical: this.logService.error(message, ...args); break;
+				case LogLevel.Off: break;
+				default: never(level, message, args); break;
+			}
+		};
+		return loadSystemCertificates({ log });
 	}
 
 	findFreePort(windowId: number | undefined, startPort: number, giveUpAfter: number, timeout: number, stride = 1): Promise<number> {
